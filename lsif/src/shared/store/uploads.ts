@@ -263,7 +263,13 @@ export class UploadManager {
 
     /**
      * Lock and convert a queued upload. If the conversion function throws an error, then
-     * the error summary and stack trace will be written to the upload record.
+     * the error summary and stack trace will be written to the upload record and the state
+     * will be set to "errored".
+     *
+     * The convert callback is invoked with the locked upload record, the entity manager
+     * that locked the (which the callback should use to operate within the same transaction),
+     * and a function that will set the state of the upload record to "completed". The callback
+     * MUST call this function on success.
      *
      * @param convert The function to call with the locked upload.
      * @param logger The logger instance.
@@ -310,15 +316,14 @@ export class UploadManager {
             const transformer = new PlainObjectToDatabaseEntityTransformer(repo.manager)
             const upload = (await transformer.transform(results[0], meta)) as pgModels.LsifUpload
 
-            const markComplete = async (): Promise<void> => {
-                await entityManager.query(
-                    "UPDATE lsif_uploads SET state = 'completed' , finished_at = now() WHERE id = $1",
-                    [upload.id]
-                )
-            }
 
             try {
-                await convert(upload, entityManager, markComplete)
+                await convert(upload, entityManager, async (): Promise<void> => {
+                    await entityManager.query(
+                        "UPDATE lsif_uploads SET state = 'completed', finished_at = now() WHERE id = $1",
+                        [upload.id]
+                    )
+                })
             } catch (error) {
                 logger.error('Failed to convert upload', { error })
 
