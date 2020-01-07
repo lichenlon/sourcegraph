@@ -631,7 +631,7 @@ components:
       description: A payload indicating the enqueued upload.
       properties:
         id:
-          type: string
+          type: number
           description: The upload identifier.
       required:
         - id
@@ -678,7 +678,7 @@ components:
       description: An LSIF upload.
       properties:
         id:
-          type: string
+          type: number
           description: A unique identifier.
         repository:
           type: string
