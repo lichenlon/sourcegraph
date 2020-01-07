@@ -15,33 +15,30 @@ import { UploadManager } from '../../shared/store/uploads'
 export function createUploadRouter(uploadManager: UploadManager): express.Router {
     const router = express.Router()
 
-    router.get(
-        '/uploads/stats',
-        wrap(
-            async (req: express.Request, res: express.Response): Promise<void> => {
-                res.send(await uploadManager.getCounts())
-            }
-        )
-    )
-
     interface UploadsQueryArgs {
         query: string
+        state?: pgModels.LsifUploadState
+        visibleAtTip?: boolean
     }
 
     router.get(
-        '/uploads/:state(queued|completed|errored|processing)',
+        '/uploads/:repository',
         validation.validationMiddleware([
             validation.validateQuery,
+            validation.validateLsifUploadState,
+            validation.validateOptionalBoolean('visibleAtTip'),
             validation.validateLimit,
             validation.validateOffset,
         ]),
         wrap(
             async (req: express.Request, res: express.Response): Promise<void> => {
-                const { query }: UploadsQueryArgs = req.query
+                const { query, state, visibleAtTip }: UploadsQueryArgs = req.query
                 const { limit, offset } = extractLimitOffset(req.query, settings.DEFAULT_UPLOAD_PAGE_SIZE)
                 const { uploads, totalCount } = await uploadManager.getUploads(
-                    req.params.state as pgModels.LsifUploadState,
+                    decodeURIComponent(req.params.repository),
+                    state,
                     query,
+                    !!visibleAtTip,
                     limit,
                     offset
                 )
