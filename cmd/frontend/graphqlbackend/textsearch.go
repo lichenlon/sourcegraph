@@ -674,6 +674,8 @@ func searchFilesInRepos(ctx context.Context, args *search.TextParameters) (res [
 					}
 					if repoLimitHit {
 						// We did not return all results in this repository.
+						//
+						// TODO!(sqs): this needs to be keyed on rev too to support multi-revs
 						common.partial[repoRev.Repo.Name] = struct{}{}
 					}
 					// non-diff search reports timeout through err, so pass false for timedOut
@@ -804,6 +806,7 @@ func flattenFileMatches(unflattened [][]*FileMatchResolver, fileMatchLimit int) 
 	// repo. We then want to create an idempontent order of results, but
 	// ensuring every repo has atleast one result.
 	sort.Slice(unflattened, func(i, j int) bool {
+		// TODO!(sqs): sort by repo,rev,file not repo,file,rev
 		a, b := unflattened[i][0].uri, unflattened[j][0].uri
 		return a > b
 	})
