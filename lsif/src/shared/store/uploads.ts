@@ -227,7 +227,7 @@ export class UploadManager {
                 this.connection.getRepository(pgModels.LsifUpload).findOneOrFail({ id: uploadId })
             )
 
-            if (upload.state === 'errored') {
+            if (upload.state === 'errored' && upload.failureSummary && upload.failureStacktrace) {
                 const error = new Error(upload.failureSummary)
                 error.stack = upload.failureStacktrace
                 throw new AbortError(error)
@@ -269,7 +269,7 @@ export class UploadManager {
      * @param logger The logger instance.
      */
     public async dequeueAndConvert(
-        convert: (upload: pgModels.LsifUpload) => Promise<void>,
+        convert: (upload: pgModels.LsifUpload, entityManager: EntityManager) => Promise<void>,
         logger: Logger
     ): Promise<boolean> {
         // First, we select the next oldest upload with a state of `queued` and set
@@ -311,7 +311,7 @@ export class UploadManager {
             let failureStacktrace: string | null = null
 
             try {
-                await convert(upload)
+                await convert(upload, entityManager)
             } catch (error) {
                 state = 'errored'
                 failureSummary = error?.message

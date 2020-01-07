@@ -19,6 +19,7 @@ import { pick } from 'lodash'
 import AsyncPolling from 'async-polling'
 import { DumpManager } from '../shared/store/dumps'
 import { DependencyManager } from '../shared/store/dependencies'
+import { EntityManager } from 'typeorm'
 
 /**
  * Runs the worker that converts LSIF uploads.
@@ -50,7 +51,7 @@ async function main(logger: Logger): Promise<void> {
     // Start metrics server
     startMetricsServer(logger)
 
-    const convert = async (upload: pgModels.LsifUpload): Promise<void> => {
+    const convert = async (upload: pgModels.LsifUpload, entityManager: EntityManager): Promise<void> => {
         logger.debug('Selected upload to convert', { uploadId: upload.id })
 
         let span: Span | undefined
@@ -71,7 +72,7 @@ async function main(logger: Logger): Promise<void> {
             metrics.uploadConversionDurationErrorsCounter,
             (): Promise<void> =>
                 logAndTraceCall(ctx, 'Converting upload', (ctx: TracingContext) =>
-                    convertUpload(connection, dumpManager, dependencyManager, fetchConfiguration, upload, ctx)
+                    convertUpload(entityManager, dumpManager, dependencyManager, fetchConfiguration, upload, ctx)
                 )
         )
     }
