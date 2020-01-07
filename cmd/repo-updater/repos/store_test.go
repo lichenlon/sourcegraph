@@ -647,6 +647,15 @@ func testStoreUpsertRepos(store repos.Store) func(*testing.T) {
 			} else if diff := pretty.Compare(have, repos.Repos{}); diff != "" {
 				t.Errorf("ListRepos:\n%s", diff)
 			}
+
+			// Undelete
+			if err = tx.UpsertRepos(ctx, want.Clone().With(repos.Opt.RepoID(0))...); err != nil {
+				t.Errorf("UpsertRepos error: %s", err)
+			} else if have, err = tx.ListRepos(ctx, repos.StoreListReposArgs{}); err != nil {
+				t.Errorf("ListRepos error: %s", err)
+			} else if diff := pretty.Compare(have, want); diff != "" {
+				t.Errorf("ListRepos:\n%s", diff)
+			}
 		}))
 	}
 }

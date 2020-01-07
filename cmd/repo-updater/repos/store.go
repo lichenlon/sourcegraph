@@ -485,6 +485,7 @@ func (s *DBStore) UpsertRepos(ctx context.Context, repos ...*Repo) (err error) {
 		case r.ID != 0:
 			updates = append(updates, r)
 		default:
+			updates = append(updates, r)
 			inserts = append(inserts, r)
 		}
 	}
@@ -649,7 +650,9 @@ updated AS (
     sources               = batch.sources,
     metadata              = batch.metadata
   FROM batch
-  WHERE repo.id = batch.id
+  WHERE repo.external_service_type = batch.external_service_type
+  AND repo.external_service_id = batch.external_service_id
+  AND repo.external_id = batch.external_id
   RETURNING repo.*
 )
 SELECT
@@ -670,15 +673,18 @@ SELECT
   updated.sources,
   updated.metadata
 FROM updated
-LEFT JOIN batch ON batch.id = updated.id
+LEFT JOIN batch USING (external_service_type, external_service_id, external_id)
 ORDER BY batch.ordinality
 `
 
 var deleteReposQuery = batchReposQueryFmtstr + `
-DELETE FROM repo USING batch
+UPDATE repo
+SET
+  name = 'DELETED-' || extract(epoch from transaction_timestamp()) || '-' || batch.name,
+  deleted_at = batch.deleted_at
+FROM batch
 WHERE batch.deleted_at IS NOT NULL
 AND repo.id = batch.ID
-RETURNING repo.*
 `
 
 var insertReposQuery = batchReposQueryFmtstr + `,
@@ -717,6 +723,7 @@ inserted AS (
     sources,
     metadata
   FROM batch
+  ON CONFLICT (external_service_type, external_service_id, external_id) DO NOTHING
   RETURNING repo.*
 )
 SELECT
@@ -737,7 +744,7 @@ SELECT
   inserted.sources,
   inserted.metadata
 FROM inserted
-LEFT JOIN batch ON batch.name = inserted.name
+LEFT JOIN batch USING (external_service_type, external_service_id, external_id)
 ORDER BY batch.ordinality
 `
 
