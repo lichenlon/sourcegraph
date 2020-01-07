@@ -111,7 +111,13 @@ export class LsifUpload {
  * A view of LsifUpload entities with state = 'completed'.
  */
 @Entity({ name: 'lsif_dumps' })
-export class LsifDump extends LsifUpload {}
+export class LsifDump extends LsifUpload {
+    /**
+     * The time the dump was created.
+     */
+    @Column('timestamp with time zone', { name: 'processed_at' })
+    public processedAt!: Date
+}
 
 /**
  * An entity within Postgres. This tracks commit parentage and branch heads for all

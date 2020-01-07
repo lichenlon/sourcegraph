@@ -60,6 +60,6 @@ ALTER INDEX lsif_dumps_visible_repository_commit RENAME TO lsif_uploads_visible_
 CREATE INDEX lsif_uploads_state ON lsif_uploads(state);
 
 -- Create a view into lsif_dumps to minimize code changes
-CREATE VIEW lsif_dumps AS SELECT * FROM lsif_uploads WHERE state = 'completed';
+CREATE VIEW lsif_dumps AS SELECT u.*, u.finished_at as processed_at FROM lsif_uploads u WHERE state = 'completed';
 
 COMMIT;
