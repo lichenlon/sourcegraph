@@ -1,4 +1,5 @@
 import * as lsp from 'vscode-languageserver-protocol'
+import * as pgModels from '../../shared/models/pg'
 import { internalLocationToLocation } from './lsif'
 
 describe('internalLocationToLocation', () => {
@@ -7,9 +8,15 @@ describe('internalLocationToLocation', () => {
         repository: 'github.com/sourcegraph/codeintellify',
         commit: 'deadbeef',
         root: '',
-        visibleAtTip: false,
+        filename: '',
+        state: 'completed' as pgModels.LsifUploadState,
         uploadedAt: new Date(),
-        processedAt: new Date(),
+        startedAt: null,
+        finishedAt: null,
+        failureSummary: null,
+        failureStacktrace: null,
+        tracingContext: '{}',
+        visibleAtTip: false,
     }
 
     const range: lsp.Range = {

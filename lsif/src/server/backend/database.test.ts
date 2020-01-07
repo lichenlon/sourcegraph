@@ -1,3 +1,4 @@
+import * as pgModels from '../../shared/models/pg'
 import * as sqliteModels from '../../shared/models/sqlite'
 import { comparePosition, findRanges, mapRangesToInternalLocations } from './database'
 
@@ -118,9 +119,15 @@ describe('mapRangesToInternalLocations', () => {
             repository: 'test-repo',
             commit: 'deadbeef',
             root: '',
-            visibleAtTip: false,
+            filename: '',
+            state: 'completed' as pgModels.LsifUploadState,
             uploadedAt: new Date(),
-            processedAt: new Date(),
+            startedAt: null,
+            finishedAt: null,
+            failureSummary: null,
+            failureStacktrace: null,
+            tracingContext: '{}',
+            visibleAtTip: false,
         }
 
         const ranges = new Map<sqliteModels.RangeId, sqliteModels.RangeData>()
