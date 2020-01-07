@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
+	"log"
 	"net/http"
 	"net/url"
 	"reflect"
@@ -15,7 +16,6 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
-	"github.com/sourcegraph/sourcegraph/internal/conf"
 	"github.com/sourcegraph/sourcegraph/internal/metrics"
 
 	"github.com/opentracing-contrib/go-stdlib/nethttp"
@@ -606,9 +606,30 @@ func searchFilesInRepos(ctx context.Context, args *search.TextParameters) (res [
 			if len(repoAllRevs.Revs) == 0 {
 				continue
 			}
-			if len(repoAllRevs.Revs) >= 2 && !conf.SearchMultipleRevisionsPerRepository() {
-				return errMultipleRevsNotSupported
+			// TODO!(sqs): temporarily lift feature flag
+			//
+			// if len(repoAllRevs.Revs) >= 2 && !conf.SearchMultipleRevisionsPerRepository() {
+			// 	return errMultipleRevsNotSupported
+			// }
+
+			globRevs, err := repoAllRevs.ExpandAllRefGlobs(ctx)
+			if err != nil {
+				return err
 			}
+			log.Printf("globRevs = %+v", globRevs)
+			if len(globRevs) > 0 {
+				x := repoAllRevs.Revs[:0]
+				for _, rev := range repoAllRevs.Revs {
+					if rev.RevSpec != "" {
+						x = append(x, rev)
+					}
+				}
+				for _, rev := range globRevs {
+					x = append(x, search.RevisionSpecifier{RevSpec: strings.TrimPrefix(rev, "refs/heads/")})
+				}
+				repoAllRevs.Revs = x
+			}
+			log.Printf("repoAllRevs.Revs = %+v", repoAllRevs.Revs)
 
 			for _, rev := range repoAllRevs.Revs {
 				if rev.RefGlob != "" || rev.ExcludeRefGlob != "" {

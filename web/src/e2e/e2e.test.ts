@@ -1181,7 +1181,7 @@ describe('e2e test suite', () => {
             test('searches', async () => {
                 await driver.page.goto(
                     sourcegraphBaseUrl +
-                        '/search?q=repo:sourcegraph/go-diff%24%40master:print-options+func+NewHunksReader&patternType=regexp'
+                        '/search?q=repo:sourcegraph/go-diff%24%40master:print-options:*refs/heads/+func+NewHunksReader&patternType=regexp'
                 )
                 await driver.page.waitForSelector('.e2e-search-results-stats', { visible: true })
                 await retry(async () => {
@@ -1196,10 +1196,13 @@ describe('e2e test suite', () => {
                         as.map(a => (a as HTMLAnchorElement).pathname)
                     )
                 ).sort()
-                expect(fileMatchHrefs).toEqual([
-                    '/github.com/sourcegraph/go-diff@master/-/blob/diff/parse.go',
-                    '/github.com/sourcegraph/go-diff@print-options/-/blob/diff/parse.go',
-                ])
+
+                // Only check for specific branches, so that the test doesn't break when new
+                // branches are added (it's an active repository).
+                const checkBranches = ['master', 'print-options']
+                expect(
+                    fileMatchHrefs.filter(href => checkBranches.some(branch => href.includes(`@${branch}/`)))
+                ).toEqual(checkBranches.map(branch => `/github.com/sourcegraph/go-diff@${branch}/-/blob/diff/parse.go`))
             })
         })
 

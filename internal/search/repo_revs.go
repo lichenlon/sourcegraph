@@ -1,13 +1,16 @@
 package search
 
 import (
+	"context"
 	"reflect"
 	"strings"
 	"sync"
 
+	"github.com/gobwas/glob"
 	"github.com/sourcegraph/sourcegraph/cmd/frontend/types"
 	"github.com/sourcegraph/sourcegraph/internal/api"
 	"github.com/sourcegraph/sourcegraph/internal/gitserver"
+	"github.com/sourcegraph/sourcegraph/internal/vcs/git"
 )
 
 // RevisionSpecifier represents either a revspec or a ref glob. At most one
@@ -158,4 +161,54 @@ func (r *RepositoryRevisions) RevSpecs() []string {
 		revspecs = append(revspecs, rev.RevSpec)
 	}
 	return revspecs
+}
+
+// ExpandAllRefGlobs evaluates all of r's ref glob expressions and returns the full,
+// current list of revisions matched or resolved by them. The list is expanded to revspecs; it is
+// not resolved to Git objects.
+//
+// For example, ref globs of "refs/heads/" and "^refs/heads/foo" would resolve to one revspec per
+// branch except for those that start with "foo" (e.g., "refs/heads/master", "refs/heads/mybranch").
+//
+// Note that not all callers need to evaluate these. If a caller is passing the ref globs as
+// command-line args to `git` directly (e.g., to `git log --glob ... --exclude ...`), it does not
+// need to evaluate them.
+func (r *RepositoryRevisions) ExpandAllRefGlobs(ctx context.Context) ([]string, error) {
+	// TODO!(sqs): only supports branches now
+	allBranches, err := git.ListBranches(ctx, r.GitserverRepo(), git.BranchesOptions{})
+	if err != nil {
+		return nil, err
+	}
+
+	expanded := map[string]struct{}{}
+	for _, rev := range r.Revs {
+		// TODO!(sqs): does not support excluding
+		if rev.RefGlob != "" {
+			pattern := rev.RefGlob
+			if !strings.HasPrefix(pattern, "refs/") {
+				pattern = "refs/" + pattern
+			}
+			if !strings.Contains(pattern, "*") {
+				pattern += "*"
+			}
+
+			p, err := glob.Compile(pattern)
+			if err != nil {
+				return nil, err
+			}
+
+			for _, branch := range allBranches {
+				branchRef := "refs/heads/" + branch.Name
+				if p.Match(branchRef) {
+					expanded[branchRef] = struct{}{}
+				}
+			}
+		}
+	}
+
+	expandedList := make([]string, 0, len(expanded))
+	for ref := range expanded {
+		expandedList = append(expandedList, ref)
+	}
+	return expandedList, nil
 }

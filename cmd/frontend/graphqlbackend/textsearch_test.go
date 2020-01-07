@@ -444,7 +444,7 @@ func TestSearchFilesInRepos_multipleRevsPerRepo(t *testing.T) {
 			FileMatchLimit: defaultMaxSearchResults,
 			Pattern:        "foo",
 		},
-		Repos:        makeRepositoryRevisions("foo@master:mybranch"),
+		Repos:        makeRepositoryRevisions("foo@master:mybranch:*refs/heads/"),
 		Query:        q,
 		Zoekt:        zoekt,
 		SearcherURLs: endpoint.Static("test"),
@@ -461,6 +461,8 @@ func TestSearchFilesInRepos_multipleRevsPerRepo(t *testing.T) {
 	sort.Strings(resultURIs)
 
 	wantResultURIs := []string{
+		"git://foo?branch3#main.go",
+		"git://foo?branch4#main.go",
 		"git://foo?master#main.go",
 		"git://foo?mybranch#main.go",
 	}
