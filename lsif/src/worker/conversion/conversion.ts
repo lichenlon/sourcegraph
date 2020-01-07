@@ -3,8 +3,8 @@ import * as fs from 'mz/fs'
 import * as path from 'path'
 import * as settings from '../settings'
 import * as pgModels from '../../shared/models/pg'
-import { addTags, TracingContext } from '../../shared/tracing'
-import { Connection, EntityManager } from 'typeorm'
+import { TracingContext } from '../../shared/tracing'
+import { EntityManager } from 'typeorm'
 import { convertLsif } from './importer'
 import { createSilentLogger } from '../../shared/logging'
 import { dbFilename } from '../../shared/paths'
@@ -13,43 +13,8 @@ import { DumpManager } from '../../shared/store/dumps'
 import { DependencyManager } from '../../shared/store/dependencies'
 
 /**
- * Create a function that takes a repository, commit, and filename containing the gzipped
- * input of an LSIF dump and converts it to a SQLite database. This will also populate
- * Postgres with the dependency data from this dump.
- *
- * @param entityManager The EntityManager to use as part of a transaction.
- * @param dumpManager The dumps manager instance.
- * @param dependencyManager The dependency manager instance.
- * @param fetchConfiguration A function that returns the current configuration.
- */
-export const convertUpload = async (
-    entityManager: EntityManager,
-    dumpManager: DumpManager,
-    dependencyManager: DependencyManager,
-    fetchConfiguration: () => { gitServers: string[] },
-    upload: pgModels.LsifUpload,
-    ctx: TracingContext
-): Promise<void> => {
-    const { logger = createSilentLogger(), span } = addTags(ctx, {
-        repository: upload.repository,
-        commit: upload.commit,
-        root: upload.root,
-    })
-
-    await convertDatabase(entityManager, dumpManager, dependencyManager, upload, ctx)
-    await updateCommitsAndDumpsVisibleFromTip(dumpManager, fetchConfiguration, upload, { logger, span })
-    await purgeOldDumps(
-        entityManager.connection,
-        dumpManager,
-        settings.STORAGE_ROOT,
-        settings.DBS_DIR_MAXIMUM_SIZE_BYTES,
-        ctx
-    )
-}
-
-/**
- * Convert the LSIF dump input into a SQLite database, create an LSIF dump record
- * and populate the dependency tables with packages and reference data.
+ * Convert the LSIF dump input into a SQLite database and populate the dependency tables
+ * with packages and reference data.
  *
  * @param entityManager The EntityManager to use as part of a transaction.
  * @param dumpManager The dumps manager instance.
@@ -57,7 +22,7 @@ export const convertUpload = async (
  * @param upload THe unprocessed upload record.
  * @param ctx The tracing context.
  */
-async function convertDatabase(
+export async function convertDatabase(
     entityManager: EntityManager,
     dumpManager: DumpManager,
     dependencyManager: DependencyManager,
@@ -72,7 +37,13 @@ async function convertDatabase(
 
         // Remove overlapping dumps that will cause a unique index error once this upload has
         // transitioned into the completed state.
-        await dumpManager.deleteOverlappingDumps(upload.repository, upload.commit, upload.root, { logger, span })
+        await dumpManager.deleteOverlappingDumps(
+            upload.repository,
+            upload.commit,
+            upload.root,
+            { logger, span },
+            entityManager
+        )
 
         // Insert dump and add packages and references to Postgres
         await dependencyManager.addPackagesAndReferences(
@@ -86,7 +57,7 @@ async function convertDatabase(
         // Move the temp file where it can be found by the server
         await fs.rename(tempFile, dbFilename(settings.STORAGE_ROOT, upload.id, upload.repository, upload.commit))
 
-        logger.info('Created dump', {
+        logger.info('Converted upload', {
             repository: upload.repository,
             commit: upload.commit,
             root: upload.root,
@@ -101,16 +72,38 @@ async function convertDatabase(
 }
 
 /**
- * Update the commits for this repo, and update the visible_at_tip flag on the dumps
- * of this repository. This will query for commits starting from both the current tip
- * of the repo and from the commit that was just processed.
+ * Handle the actions that much occur after an upload record is marked as complete.
  *
+ * @param entityManager The EntityManager to use as part of a transaction.
  * @param dumpManager The dumps manager instance.
  * @param fetchConfiguration A function that returns the current configuration.
  * @param upload The processed upload record.
  * @param ctx The tracing context.
  */
-async function updateCommitsAndDumpsVisibleFromTip(
+export async function postProcessConversion(
+    entityManager: EntityManager,
+    dumpManager: DumpManager,
+    fetchConfiguration: () => { gitServers: string[] },
+    upload: pgModels.LsifUpload,
+    ctx: TracingContext
+): Promise<void> {
+    await updateCommitsAndDumpsVisibleFromTip(entityManager, dumpManager, fetchConfiguration, upload, ctx)
+    await purgeOldDumps(entityManager, dumpManager, settings.STORAGE_ROOT, settings.DBS_DIR_MAXIMUM_SIZE_BYTES, ctx)
+}
+
+/**
+ * Update the commits for this repo, and update the visible_at_tip flag on the dumps
+ * of this repository. This will query for commits starting from both the current tip
+ * of the repo and from the commit that was just processed.
+ *
+ * @param entityManager The EntityManager to use as part of a transaction.
+ * @param dumpManager The dumps manager instance.
+ * @param fetchConfiguration A function that returns the current configuration.
+ * @param upload The processed upload record.
+ * @param ctx The tracing context.
+ */
+export async function updateCommitsAndDumpsVisibleFromTip(
+    entityManager: EntityManager,
     dumpManager: DumpManager,
     fetchConfiguration: () => { gitServers: string[] },
     upload: pgModels.LsifUpload,
@@ -152,22 +145,22 @@ async function updateCommitsAndDumpsVisibleFromTip(
         }
     }
 
-    await dumpManager.updateCommits(upload.repository, commits, ctx)
-    await dumpManager.updateDumpsVisibleFromTip(upload.repository, tipCommit, ctx)
+    await dumpManager.updateCommits(upload.repository, commits, ctx, entityManager)
+    await dumpManager.updateDumpsVisibleFromTip(upload.repository, tipCommit, ctx, entityManager)
 }
 
 /**
  * Remove dumps until the space occupied by the dbs directory is below
  * the given limit.
  *
- * @param connection The Postgres connection.
+ * @param entityManager The EntityManager to use as part of a transaction.
  * @param dumpManager The dumps manager instance.
  * @param storageRoot The path where SQLite databases are stored.
  * @param maximumSizeBytes The maximum number of bytes.
  * @param ctx The tracing context.
  */
-function purgeOldDumps(
-    connection: Connection,
+export function purgeOldDumps(
+    entityManager: EntityManager,
     dumpManager: DumpManager,
     storageRoot: string,
     maximumSizeBytes: number,
@@ -182,7 +175,7 @@ function purgeOldDumps(
 
         while (currentSizeBytes > maximumSizeBytes) {
             // While our current data usage is too big, find candidate dumps to delete
-            const dump = await dumpManager.getOldestPrunableDump()
+            const dump = await dumpManager.getOldestPrunableDump(entityManager)
             if (!dump) {
                 logger.warn(
                     'Unable to reduce disk usage of the DB directory because deleting any single dump would drop in-use code intel for a repository.',
@@ -203,7 +196,7 @@ function purgeOldDumps(
             currentSizeBytes -= await filesize(filename)
 
             // This delete cascades to the packages and references tables as well
-            await dumpManager.deleteDump(dump)
+            await dumpManager.deleteDump(dump, entityManager)
         }
     }
 
@@ -211,7 +204,7 @@ function purgeOldDumps(
     // choose more dumps than necessary to purge. This can happen if the directory
     // size check and the selection of a purgeable dump are interleaved between
     // multiple workers.
-    return withLock(connection, 'retention', purge)
+    return withLock(entityManager.connection, 'retention', purge)
 }
 
 /**

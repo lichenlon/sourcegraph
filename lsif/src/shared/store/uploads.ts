@@ -269,7 +269,11 @@ export class UploadManager {
      * @param logger The logger instance.
      */
     public async dequeueAndConvert(
-        convert: (upload: pgModels.LsifUpload, entityManager: EntityManager) => Promise<void>,
+        convert: (
+            upload: pgModels.LsifUpload,
+            entityManager: EntityManager,
+            markComplete: () => Promise<void>
+        ) => Promise<void>,
         logger: Logger
     ): Promise<boolean> {
         // First, we select the next oldest upload with a state of `queued` and set
@@ -306,28 +310,27 @@ export class UploadManager {
             const transformer = new PlainObjectToDatabaseEntityTransformer(repo.manager)
             const upload = (await transformer.transform(results[0], meta)) as pgModels.LsifUpload
 
-            let state = 'completed'
-            let failureSummary: string | null = null
-            let failureStacktrace: string | null = null
-
-            try {
-                await convert(upload, entityManager)
-            } catch (error) {
-                state = 'errored'
-                failureSummary = error?.message
-                failureStacktrace = error?.stack
-
-                logger.error('Failed to convert upload', { error })
+            const markComplete = async (): Promise<void> => {
+                await entityManager.query(
+                    "UPDATE lsif_uploads SET state = 'completed' , finished_at = now() WHERE id = $1",
+                    [upload.id]
+                )
             }
 
-            await entityManager.query(
-                `
+            try {
+                await convert(upload, entityManager, markComplete)
+            } catch (error) {
+                logger.error('Failed to convert upload', { error })
+
+                await entityManager.query(
+                    `
                     UPDATE lsif_uploads
-                    SET finished_at = now(), state = $2, failure_summary = $3, failure_stacktrace = $4
+                    SET state = 'errored', finished_at = now(), failure_summary = $2, failure_stacktrace = $3
                     WHERE id = $1
                 `,
-                [uploadId, state, failureSummary, failureStacktrace]
-            )
+                    [uploadId, error?.message, error?.stack]
+                )
+            }
 
             return true
         })
