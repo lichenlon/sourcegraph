@@ -69,7 +69,9 @@ func main() {
 		Now:   clock,
 	}
 
-	shared.Main(githubWebhook)
+	bitbucketServerWebhook := &a8n.BitbucketServerWebhook{}
+
+	shared.Main(githubWebhook, bitbucketServerWebhook)
 }
 
 func initLicensing() {
